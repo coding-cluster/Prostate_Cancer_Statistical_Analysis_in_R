@@ -1,0 +1,166 @@
+---
+title: "Regression Analysis"
+author: "Alexis Alberto Zúñiga Alonso"
+date: today
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-fold: show
+    code-tools: true
+    embed-resources: true
+    fig-width: 8
+execute: 
+  warning: true
+  message: true
+  echo: true
+---
+
+## 1. Introduction
+
+### 1.1. Project Libraries and Installation
+```{r}
+# Project libraries
+libs <- c("genridge", "tidyverse", "skimr", "corrplot", "car",
+          "lmtest", "glmnet", "MASS", "performance", "see", "gt", "psych")
+
+# Install only the missing ones
+missing <- setdiff(libs, rownames(installed.packages()))
+if (length(missing) > 0) {
+  install.packages(missing, repos = "https://cloud.r-project.org")
+}
+
+# Load all of them
+invisible(lapply(libs, library, character.only = TRUE))
+```
+
+### 1.2. Dataset Analysis
+
+#### 1.2.1. Importing the dataset
+The dataset to be used in this activity will be `prostate` from the `genridge` library. This dataset contains the following structure:
+
+```{r}
+#| eval: false
+# Information about the library
+library(genridge)
+?prostate
+```
+
+#### 1.2.2. Dataset
+```{r}
+# Dataframe creation
+data(prostate, package="genridge")
+df <- prostate |> dplyr::select(-train)
+# Stringify dataset
+str(df)
+# Dataset summary
+print(summary(df))
+# Skim through the data
+skimr::skim(df)
+# Head of the dataset
+print(head(df))
+# Tail of the dataset
+print(tail(df))
+# Shape / Dimensions of the Dataset
+print(dim(df))
+```
+
+### 1.3. Descriptive Statistics
+```{r}
+# Descriptive statistics with psych
+psych::describe(df) |>
+  round(2) |>
+  gt::gt(rownames_to_stub = TRUE)
+```
+
+#### 1.3.1. Histograms
+
+```{r}
+hist(df$lcavol,
+     main = "Distribution of the Cancer Volume",
+     xlab = "log(cancer volume)",
+     col = "coral",
+     border = "red",
+)
+hist(df$lweight,
+     main = "Distribution of the Prostate Weight",
+     xlab = "log(prostate weight)",
+     col = "coral",
+     border = "red",
+)
+hist(df$age,
+     main = "Distribution of Ages",
+     xlab = "ages",
+     col = "coral",
+     border = "red",
+)
+hist(df$lbph,
+     main = "Distribution of Benign Prostatic Hyperplasia Amount",
+     xlab = "log(benign prostatic hyperplasia amount)",
+     col = "coral",
+     border = "red",
+)
+hist(df$svi,
+     main = "Distribution of the Seminal Vesicle Invasion",
+     xlab = "seminal vesicle invasion",
+     col = "coral",
+     border = "red",
+)
+hist(df$lcp,
+     main = "Distribution of the Capsular Penetration",
+     xlab = "log(capsular penetration)",
+     col = "coral",
+     border = "red",
+)
+hist(df$gleason,
+     main = "Distribution of Gleason Scores",
+     xlab = "Gleason scores",
+     col = "coral",
+     border = "red",
+)
+hist(df$pgg45,
+     main = "Distribution of Percentage Gleason Scores 4 or 5",
+     xlab = "percentage Gleason scores 4 or 5",
+     col = "coral",
+     border = "red",
+)
+hist(df$lpsa,
+     main = "Distribution of Prostate Specific Antigen",
+     xlab = "log(prostate specific antigen)",
+     col = "coral",
+     border = "red",
+)
+```
+
+#### 1.3.2 Normality Test
+Shapiro-Wilk test for normality on the variables in the dataset.
+```{r}
+# Shapiro-Wilk on lcavol
+shapiro.test(df$lcavol)
+# Shapiro-Wilk on lweight
+shapiro.test(df$lweight)
+# Shapiro-Wilk on age
+shapiro.test(df$age)
+# Shapiro-Wilk on lbph
+shapiro.test(df$lbph)
+# Shapiro-Wilk on svi
+shapiro.test(df$svi)
+# Shapiro-Wilk on lcp
+shapiro.test(df$lcp)
+# Shapiro-Wilk on gleason
+shapiro.test(df$gleason)
+# Shapiro-Wilk on pgg45
+shapiro.test(df$pgg45)
+# Shapiro-Wilk on lpsa
+shapiro.test(df$lpsa)
+```
+
+**Observations:**
+
+- The variables that follow a **normal distribution** according to the results given by the Shapiro-Wilk test are: `lcavol`, `lweight`, and `lpsa`. The rest of variables **do not** follow a normal distribution.
+
+### 1.4. Correlation Matrix
+
+```{r}
+corrplot(cor(df), method = "color", addCoef.col = "black")
+```
