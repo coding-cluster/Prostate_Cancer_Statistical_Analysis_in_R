@@ -1,0 +1,175 @@
+---
+title: "Regression Analysis 3"
+author: "Alexis Alberto Zúñiga Alonso"
+date: today
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-fold: show
+    code-tools: true
+    embed-resources: true
+    fig-width: 8
+  typst:
+    toc: true
+    fig-width: 7
+execute:
+  warning: true
+  message: true
+  echo: true
+---
+
+## 1. Introduction
+
+### 1.1. Project Libraries and Installation
+```{r}
+#| message: false
+# Project libraries
+libs <- c("tidyverse", "readxl", "knitr")
+
+# Install only the missing ones
+missing <- setdiff(libs, rownames(installed.packages()))
+if (length(missing) > 0) {
+  install.packages(missing, repos = "https://cloud.r-project.org")
+}
+
+# Load all of them
+invisible(lapply(libs, library, character.only = TRUE))
+```
+
+## 2. Problem 3: Cervical Cancer Deaths (Poisson Regression)
+
+The dataset `cervical.xlsx` contains the number of deaths due to cervical cancer in 1969–1973 (1969–1972 in Belgium) by age group in four countries.
+
+### 2.1. Initial Description of the Data
+
+```{r}
+cervical_raw <- read_excel("data/cervical.xlsx")
+str(cervical_raw)
+colSums(is.na(cervical_raw))
+```
+
+The dataset has `r nrow(cervical_raw)` observations (4 countries × 4 age groups) and no missing values:
+
+- `Pais` (country): `Belgium`, `EngWales` (England and Wales), `France` and `Italy`. Categorical.
+- `Edad` (age group): `25to34`, `35to44`, `45to54` and `55to64`. Ordinal categorical.
+- `Muertes` (deaths): number of deaths. This is the **response variable**, a count, which is why a Poisson model is appropriate.
+
+```{r}
+cervical <- cervical_raw |>
+  mutate(
+    Pais = factor(Pais),
+    Edad = factor(Edad, levels = c("25to34", "35to44", "45to54", "55to64"))
+  )
+```
+
+The reference levels are `Belgium` (alphabetical order) and `25to34` (youngest group).
+
+#### 2.1.1. Deaths by Country and Age Group
+
+```{r}
+cervical |>
+  pivot_wider(names_from = Edad, values_from = Muertes) |>
+  mutate(Total = rowSums(across(where(is.numeric)))) |>
+  kable(caption = "Deaths by country and age group")
+```
+
+```{r}
+summary(cervical$Muertes)
+```
+
+```{r}
+cervical |>
+  ggplot(aes(x = Edad, y = Muertes, color = Pais, group = Pais)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(title = "Cervical cancer deaths by age group and country",
+       x = "Age group", y = "Deaths", color = "Country") +
+  theme_minimal()
+```
+
+**Observations:**
+
+- In all four countries, the number of deaths increases with age.
+- England and Wales has by far the most deaths, and Belgium the fewest. These are **absolute counts**: the dataset does not include the population of each country, so these differences mostly reflect population size, not a higher risk.
+- Belgium's data covers 4 years (1969–1972) instead of 5, which also lowers its counts.
+
+### 2.2. Poisson Regression Model
+
+$$\log(\mu) = \beta_0 + \beta_1\,\text{35to44} + \beta_2\,\text{45to54} + \beta_3\,\text{55to64} + \beta_4\,\text{EngWales} + \beta_5\,\text{France} + \beta_6\,\text{Italy}$$
+
+```{r}
+poisson_model <- glm(Muertes ~ Edad + Pais, family = poisson, data = cervical)
+summary(poisson_model)
+```
+
+#### 2.2.1. Significance of the Variables
+
+```{r}
+anova(poisson_model, test = "Chisq")
+```
+
+Both age and country significantly reduce the deviance (p < 0.001).
+
+#### 2.2.2. Goodness of Fit and Overdispersion
+
+A Poisson model assumes that the variance equals the mean. The dispersion parameter should be close to 1:
+
+```{r}
+dispersion <- sum(residuals(poisson_model, type = "pearson")^2) / df.residual(poisson_model)
+dispersion
+
+# Goodness-of-fit test based on the residual deviance
+pchisq(deviance(poisson_model), df.residual(poisson_model), lower.tail = FALSE)
+```
+
+**Observations:** the dispersion parameter is `r round(dispersion, 2)`, much greater than 1, and the goodness-of-fit test rejects that the model fits perfectly. There is **overdispersion**: the Poisson standard errors are too small. To check whether the conclusions still hold, the model is refitted with a quasi-Poisson family, which keeps the same coefficients but corrects the standard errors:
+
+```{r}
+quasi_model <- glm(Muertes ~ Edad + Pais, family = quasipoisson, data = cervical)
+summary(quasi_model)
+```
+
+Even with the corrected standard errors, all the coefficients remain significant, so the conclusions do not change.
+
+### 2.3. Interpretation of the Coefficients
+
+In Poisson regression the coefficients are on the **log scale**. Exponentiating them gives **rate ratios (RR)**: how many times the expected number of deaths is multiplied compared with the reference group.
+
+```{r}
+rate_ratios <- exp(cbind(RR = coef(poisson_model), confint.default(quasi_model)))
+rate_ratios |> kable(digits = 3, caption = "Rate ratios with 95% confidence intervals (quasi-Poisson)")
+```
+
+```{r}
+rr <- exp(coef(poisson_model))
+```
+
+- **Intercept:** for the reference group (Belgium, 25–34 years), the model predicts $e^{\beta_0}$ = `r round(rr[1], 2)` deaths.
+- **Age**, with the same country held constant, compared with the 25–34 group:
+  - 35–44: `r round(rr[2], 2)` times as many deaths.
+  - 45–54: `r round(rr[3], 2)` times as many deaths.
+  - 55–64: `r round(rr[4], 2)` times as many deaths.
+  - The number of deaths increases strongly with age, and the largest jump happens between the 25–34 and 35–44 groups.
+- **Country**, with the same age group held constant, compared with Belgium:
+  - England and Wales: `r round(rr[5], 2)` times as many deaths.
+  - France: `r round(rr[6], 2)` times as many deaths.
+  - Italy: `r round(rr[7], 2)` times as many deaths.
+
+**Important:** the country coefficients compare **numbers of deaths, not risk**. Without the population of each country (to include as an offset), they mainly reflect that England and Wales, France and Italy have much larger populations than Belgium, and that Belgium's data covers one year fewer.
+
+#### 2.3.1. Observed vs Fitted Deaths
+
+```{r}
+cervical |>
+  mutate(fitted = fitted(poisson_model)) |>
+  ggplot(aes(x = Muertes, y = fitted, color = Pais)) +
+  geom_abline(linetype = "dashed") +
+  geom_point(size = 3) +
+  scale_x_log10() + scale_y_log10() +
+  labs(title = "Observed vs fitted deaths (log scale)",
+       x = "Observed deaths", y = "Fitted deaths", color = "Country") +
+  theme_minimal()
+```
+
+**Conclusion:** age and country are both significant predictors of the number of cervical cancer deaths. The number of deaths rises sharply with age in every country. The model fits the general pattern well (the points lie close to the diagonal), but it shows overdispersion; the quasi-Poisson correction confirms that the conclusions still hold. To compare the actual **risk** between countries, the population at risk would be needed as an offset.

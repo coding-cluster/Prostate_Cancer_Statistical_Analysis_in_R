@@ -10,7 +10,10 @@ format:
     code-tools: true
     embed-resources: true
     fig-width: 8
-execute: 
+  typst:
+    toc: true
+    fig-width: 7
+execute:
   warning: true
   message: true
   echo: true
@@ -70,6 +73,8 @@ print(dim(df))
 ```{r}
 # Descriptive statistics with psych
 psych::describe(df) |>
+  as.data.frame() |>
+  dplyr::select(n, mean, sd, median, min, max, range, skew, kurtosis, se) |>
   round(2) |>
   gt::gt(rownames_to_stub = TRUE)
 ```
@@ -116,7 +121,9 @@ shapiro.test(df$lpsa)
 ### 1.4. Correlation Matrix
 
 ```{r}
-corrplot(cor(df), method = "color", addCoef.col = "black")
+#| fig-height: 7
+corrplot(cor(df), method = "color", addCoef.col = "black",
+         number.cex = 0.75, tl.col = "black")
 ```
 
 ## 2. Train / Test Split

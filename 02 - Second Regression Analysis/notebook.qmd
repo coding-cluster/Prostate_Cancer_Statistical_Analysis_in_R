@@ -1,0 +1,169 @@
+---
+title: "Regression Analysis 2"
+author: "Alexis Alberto Zúñiga Alonso"
+date: today
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-fold: show
+    code-tools: true
+    embed-resources: true
+    fig-width: 8
+  typst:
+    toc: true
+    fig-width: 7
+execute:
+  warning: true
+  message: true
+  echo: true
+---
+
+## 1. Introduction
+
+### 1.1. Project Libraries and Installation
+```{r}
+#| message: false
+# Project libraries
+libs <- c("tidyverse", "readxl", "knitr")
+
+# Install only the missing ones
+missing <- setdiff(libs, rownames(installed.packages()))
+if (length(missing) > 0) {
+  install.packages(missing, repos = "https://cloud.r-project.org")
+}
+
+# Load all of them
+invisible(lapply(libs, library, character.only = TRUE))
+```
+
+## 2. Problem 2: Seed Germination (Logistic Regression)
+
+In a study on seed germination, two seed types and two rootstock types were used. The goal is to determine whether the rootstock and the seed type determine whether a plant germinates. The results are in `germ.xlsx`.
+
+### 2.1. Initial Description of the Data
+
+```{r}
+germ_raw <- read_excel("data/germ.xlsx")
+str(germ_raw)
+colSums(is.na(germ_raw))
+```
+
+The dataset has `r nrow(germ_raw)` observations (one per seed) and no missing values. All three variables are categorical:
+
+- `Portain` (rootstock): `Bean` or `Cucumber`.
+- `Semilla` (seed type): `OA73` or `OA75`.
+- `Resultado` (result): `Germ` (germinated) or `NotGerm` (did not germinate). This is the **response variable**.
+
+For the model, the response is coded as `1` = germinated and `0` = did not germinate, and the explanatory variables are converted to factors. The reference levels are `Bean` and `OA73` (alphabetical order).
+
+```{r}
+germ <- germ_raw |>
+  mutate(
+    germinated = if_else(Resultado == "Germ", 1, 0),
+    Portain    = factor(Portain),
+    Semilla    = factor(Semilla)
+  )
+```
+
+#### 2.1.1. Frequency Tables
+
+```{r}
+germ |> count(Portain) |> kable(caption = "Seeds per rootstock")
+germ |> count(Semilla) |> kable(caption = "Seeds per seed type")
+germ |> count(Resultado) |> kable(caption = "Germination result")
+```
+
+#### 2.1.2. Germination Proportion by Group
+
+```{r}
+germ_summary <- germ |>
+  group_by(Portain, Semilla) |>
+  summarise(
+    n            = n(),
+    n_germinated = sum(germinated),
+    proportion   = mean(germinated),
+    .groups = "drop"
+  )
+
+germ_summary |> kable(digits = 3, caption = "Germination by rootstock and seed")
+```
+
+```{r}
+germ_summary |>
+  ggplot(aes(x = Semilla, y = proportion, fill = Portain)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = scales::percent(proportion, accuracy = 0.1)),
+            position = position_dodge(width = 0.9), vjust = -0.4) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.8)) +
+  labs(title = "Germination proportion by rootstock and seed",
+       x = "Seed type", y = "Germinated", fill = "Rootstock") +
+  theme_minimal()
+```
+
+**Observations:**
+
+- Seeds on the `Cucumber` rootstock germinate more often than those on `Bean`, for both seed types.
+- The effect of the seed type depends on the rootstock: with `Bean`, `OA75` germinates slightly *less* than `OA73`; with `Cucumber`, `OA75` germinates clearly *more*. This suggests an **interaction** between rootstock and seed, which is tested in the model.
+
+### 2.2. Logistic Regression Model
+
+#### 2.2.1. Main Effects Model
+
+$$\log\left(\frac{p}{1-p}\right) = \beta_0 + \beta_1\,\text{Cucumber} + \beta_2\,\text{OA75}$$
+
+```{r}
+logit_main <- glm(germinated ~ Portain + Semilla, family = binomial, data = germ)
+summary(logit_main)
+```
+
+#### 2.2.2. Model with Interaction
+
+$$\log\left(\frac{p}{1-p}\right) = \beta_0 + \beta_1\,\text{Cucumber} + \beta_2\,\text{OA75} + \beta_3\,(\text{Cucumber} \times \text{OA75})$$
+
+```{r}
+logit_int <- glm(germinated ~ Portain * Semilla, family = binomial, data = germ)
+summary(logit_int)
+```
+
+#### 2.2.3. Model Comparison (Likelihood Ratio Test)
+
+- $H_0$: the interaction is not needed ($\beta_3 = 0$).
+- $H_1$: the interaction is needed ($\beta_3 \neq 0$).
+
+```{r}
+anova(logit_main, logit_int, test = "Chisq")
+```
+
+**Observations:** the p-value of the likelihood ratio test is less than 0.05, so $H_0$ is rejected: the interaction model fits significantly better, and it also has a lower AIC (`r round(AIC(logit_int), 1)` vs `r round(AIC(logit_main), 1)`). The interaction model is the one interpreted below.
+
+### 2.3. Interpretation of the Coefficients
+
+In logistic regression the coefficients are on the **log-odds** scale. Exponentiating them gives **odds ratios (OR)**, which are easier to interpret.
+
+```{r}
+odds_ratios <- exp(cbind(OR = coef(logit_int), confint.default(logit_int)))
+odds_ratios |> kable(digits = 3, caption = "Odds ratios with 95% confidence intervals")
+```
+
+```{r}
+b <- coef(logit_int)
+```
+
+- **Intercept ($\beta_0$ = `r round(b[1], 4)`):** for the reference group (`Bean` + `OA73`), the odds of germinating are $e^{\beta_0}$ = `r round(exp(b[1]), 3)`. That is, a germination probability of `r round(plogis(b[1]), 3)`.
+- **PortainCucumber ($\beta_1$ = `r round(b[2], 4)`, p < 0.05):** with seed `OA73`, using the `Cucumber` rootstock multiplies the odds of germinating by `r round(exp(b[2]), 3)` compared with `Bean` (a `r round((exp(b[2]) - 1) * 100, 1)`% increase).
+- **SemillaOA75 ($\beta_2$ = `r round(b[3], 4)`, p > 0.05):** with the `Bean` rootstock, seed `OA75` has odds of germinating `r round(exp(b[3]), 3)` times those of `OA73`. This effect is **not significant**: on `Bean`, the seed type does not change germination.
+- **Interaction ($\beta_3$ = `r round(b[4], 4)`, p < 0.05):** the effect of the `Cucumber` rootstock is `r round(exp(b[4]), 3)` times larger for seed `OA75` than for `OA73`. Combining the coefficients:
+  - With `OA75`, `Cucumber` vs `Bean`: OR = $e^{\beta_1 + \beta_3}$ = `r round(exp(b[2] + b[4]), 3)`.
+  - With `Cucumber`, `OA75` vs `OA73`: OR = $e^{\beta_2 + \beta_3}$ = `r round(exp(b[3] + b[4]), 3)`.
+
+#### 2.3.1. Predicted Probabilities
+
+```{r}
+germ_summary |>
+  select(Portain, Semilla) |>
+  mutate(predicted = predict(logit_int, newdata = pick(everything()), type = "response")) |>
+  kable(digits = 3, caption = "Predicted germination probability")
+```
+
+**Conclusion:** both the rootstock and the seed type determine germination, but not independently. The highest germination probability (`r round(max(germ_summary$proportion), 3)`) is obtained with the combination `Cucumber` + `OA75`. On `Bean`, the seed type makes no significant difference.
